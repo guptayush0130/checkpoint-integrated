@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Agent Testing Framework</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">Δ</div>
+        <div>
+          <h1>AI Agent Testing Framework</h1>
+          <p class="subtitle">3-way combinatorial coverage × MCTS adversarial search</p>
+        </div>
+      </div>
+      <div class="mode" id="mode-badge">…</div>
+    </header>
+
+    <main>
+      <!-- ─── Step 1: input ───────────────────────────────────────────── -->
+      <section class="card" id="step-input">
+        <div class="card-head">
+          <h2><span class="step">1</span> Inputs</h2>
+          <div class="actions">
+            <button class="btn ghost" id="load-example">Load example</button>
+            <label class="btn ghost" for="upload-file">Upload JSON/YAML</label>
+            <input type="file" id="upload-file" accept=".json,.yaml,.yml" hidden />
+          </div>
+        </div>
+        <p class="muted">
+          Paste an SDK spec, personas, objectives, and sandbox schema — or load
+          the bundled customer-support example to see the framework in action.
+        </p>
+        <textarea id="input-json" spellcheck="false" placeholder='{ "agent_spec": ..., "personas": [...], "objectives": [...], "sandbox_schema": ... }'></textarea>
+        <div class="row">
+          <button class="btn primary" id="create-suite">Create suite →</button>
+          <span class="muted" id="suite-id-display"></span>
+        </div>
+      </section>
+
+      <!-- ─── Step 2: variables + matrix ─────────────────────────────── -->
+      <section class="card hidden" id="step-matrix">
+        <div class="card-head">
+          <h2><span class="step">2</span> Test Variables &amp; Combinatorial Matrix</h2>
+          <div class="actions">
+            <label class="muted">Max rows
+              <input type="number" id="max-rows" value="20" min="1" max="200" />
+            </label>
+            <button class="btn primary" id="gen-matrix">Generate 3-way matrix</button>
+          </div>
+        </div>
+
+        <div id="variables-view" class="hidden"></div>
+        <div id="matrix-view" class="hidden"></div>
+      </section>
+
+      <!-- ─── Step 3: run + live progress ─────────────────────────────── -->
+      <section class="card hidden" id="step-run">
+        <div class="card-head">
+          <h2><span class="step">3</span> Run Test Suite</h2>
+          <div class="actions">
+            <button class="btn primary" id="run-suite">Run with MCTS</button>
+          </div>
+        </div>
+        <p class="muted">
+          Each row spawns a Tester Agent (gpt-4o-mini by default) that uses MCTS
+          with UCB1 + a near-miss bonus to find conversation paths that break the
+          target agent. Rule-based + LLM-as-judge evaluation.
+        </p>
+        <div id="progress-view" class="hidden"></div>
+      </section>
+
+      <!-- ─── Step 4: results ─────────────────────────────────────────── -->
+      <section class="card hidden" id="step-results">
+        <div class="card-head">
+          <h2><span class="step">4</span> Results</h2>
+        </div>
+        <div id="results-view"></div>
+      </section>
+    </main>
+
+    <footer>
+      <span class="muted">v0.1 — pluggable sandbox · LLM-as-judge · progressive widening</span>
+    </footer>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
