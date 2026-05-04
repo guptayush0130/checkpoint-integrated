@@ -62,6 +62,16 @@ export interface TargetEndpointConfig {
    * Extra static headers to include on every request (in addition to auth).
    */
   headers?: Record<string, string>;
+  /**
+   * Sandbox runtime env (URL 2). When set, the engine attaches it to every
+   * request body so the external target can point its supabase-js client at
+   * our sandbox — turning every tool call into a sandbox.intercept event.
+   *
+   * Default profile body gains: `{ sandbox: { url, anon_key } }`.
+   * openai-chat profile body gains the same field.
+   * custom profile gets `{{sandbox_url}}` + `{{sandbox_anon_key}}` placeholders.
+   */
+  sandbox?: { url: string; anonKey: string };
 }
 
 export interface TargetReply {
@@ -160,15 +170,21 @@ export class TargetClient {
 
   private buildBody(opts: TargetSendOptions, strategy: ConversationStrategy): any {
     const history = opts.history ?? [];
+    const sandboxBlock = this.cfg.sandbox
+      ? { url: this.cfg.sandbox.url, anon_key: this.cfg.sandbox.anonKey }
+      : undefined;
     switch (this.cfg.profile) {
-      case 'default':
-        return strategy === 'replay-history'
-          ? {
-              conversation_id: opts.conversationId,
-              user_message: opts.userMessage,
-              history: history.map((t) => ({ role: t.role, content: t.content }))
-            }
-          : { conversation_id: opts.conversationId, user_message: opts.userMessage };
+      case 'default': {
+        const base =
+          strategy === 'replay-history'
+            ? {
+                conversation_id: opts.conversationId,
+                user_message: opts.userMessage,
+                history: history.map((t) => ({ role: t.role, content: t.content }))
+              }
+            : { conversation_id: opts.conversationId, user_message: opts.userMessage };
+        return sandboxBlock ? { ...base, sandbox: sandboxBlock } : base;
+      }
 
       case 'openai-chat': {
         const messages = history.map((t) => ({
@@ -176,9 +192,11 @@ export class TargetClient {
           content: t.content
         }));
         messages.push({ role: 'user', content: opts.userMessage });
-        return strategy === 'replay-history'
-          ? { messages }
-          : { messages: [{ role: 'user', content: opts.userMessage }] };
+        const base =
+          strategy === 'replay-history'
+            ? { messages }
+            : { messages: [{ role: 'user', content: opts.userMessage }] };
+        return sandboxBlock ? { ...base, sandbox: sandboxBlock } : base;
       }
 
       case 'custom':
@@ -186,7 +204,9 @@ export class TargetClient {
           user_message: opts.userMessage,
           conversation_id: opts.conversationId,
           history_json: JSON.stringify(history),
-          history_text: history.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join('\n')
+          history_text: history.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join('\n'),
+          sandbox_url: this.cfg.sandbox?.url || '',
+          sandbox_anon_key: this.cfg.sandbox?.anonKey || ''
         });
     }
   }

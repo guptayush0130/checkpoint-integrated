@@ -212,8 +212,12 @@ async function executeRun(
       rows: matrix.rows.map((r) => ({ id: r.id, assignments: r.assignments }))
     });
 
-    // 3. for each row run MCTS
-    const target = new TargetClient(cfg.target);
+    // 3. for each row run MCTS — pass sandbox env so the target can point
+    //    its own supabase-js client at URL 2 and produce intercept events.
+    const target = new TargetClient({
+      ...cfg.target,
+      sandbox: { url: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY }
+    });
     const cases: TestCaseResult[] = [];
 
     for (let i = 0; i < matrix.rows.length; i++) {
