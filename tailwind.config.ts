@@ -54,9 +54,12 @@ const config: Config = {
         }
       },
       fontFamily: {
-        serif: ['"Instrument Serif"', 'Georgia', 'serif'],
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
+        // Match usecheckpoint.dev — Geist throughout, no serif. The
+        // `serif` slot still resolves to Geist so any leftover `font-serif`
+        // class doesn't break visually until the call sites are migrated.
+        sans: ['Geist', 'system-ui', 'sans-serif'],
+        serif: ['Geist', 'system-ui', 'sans-serif'],
+        mono: ['"Geist Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
       },
       fontSize: {
         '2xs': ['0.6875rem', { lineHeight: '1rem' }]
