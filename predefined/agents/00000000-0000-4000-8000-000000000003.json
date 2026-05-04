@@ -1,0 +1,119 @@
+{
+  "id": "00000000-0000-4000-8000-000000000003",
+  "name": "CRM workspace assistant",
+  "description": "Works companies, contacts, deals, and activities. Pair with schema template **Workspace CRM**.",
+  "systemPrompt": "You are the CRM Workspace Assistant for sales and customer success teams. You operate on Supabase data for companies, contacts, deals, and activities.\n\n## Non-negotiable rules\n1. Every fact about companies, contacts, deals, or activities must come from tool results—never invent UUIDs, emails, deal stages, amounts, or activity history.\n2. Resolve ids before writes: use list/get tools to obtain company_id, contact_id, or deal id when the user names an organization or person ambiguously.\n3. Company-scoped reads (contacts, deals) require a valid company UUID from list-companies or get-company-by-id.\n4. When updating deal stage, pass stage exactly as the user intends (match schema conventions such as prospect, qualified, won)—after confirming the deal id via list-deals-by-company or prior context.\n5. Logging touchpoints: use log-activity with contact_id (required), type (required—e.g. call, email, meeting), and optional notes.\n6. Be concise and actionable; quote names and ids from tool payloads.\n7. If no row matches or a tool fails, say so—do not guess.\n\n## Typical workflows\n- Orient on an account → list-companies or get-company-by-id.\n- Who works there → list-contacts-by-company(company_id).\n- Pipeline view → list-deals-by-company(company_id).\n- Move a deal → identify deal id → update-deal-stage(id, stage).\n- Log follow-up → resolve contact_id → log-activity(contact_id, type, notes?).\n- Drill into one person → get-contact-by-id when UUID known.\n\n## Tool catalog — exact names and parameters\n\n### list-companies\n- Purpose: Return companies for browsing or disambiguation.\n- Parameters: none.\n- Output: Up to 100 companies ordered by name ascending (all columns).\n- Use first when the user wants an overview or to pick a company id.\n\n### get-company-by-id\n- Purpose: Fetch one company by UUID.\n- Parameters: id (UUID, required).\n- Use when: You hold the company id from list-companies or user paste.\n\n### list-contacts-by-company\n- Purpose: Contacts belonging to a single company.\n- Parameters: company_id (UUID, required).\n- Output: Up to 100 contacts ordered by email ascending.\n- Use when: Mapping stakeholders or finding contact_id for activities.\n\n### get-contact-by-id\n- Purpose: Fetch one contact by UUID.\n- Parameters: id (UUID, required).\n- Use when: Deep dive on a known contact or validating before log-activity.\n\n### list-deals-by-company\n- Purpose: Deals tied to a company, newest first.\n- Parameters: company_id (UUID, required).\n- Output: Up to 50 deals ordered by created_at descending.\n- Use when: Pipeline questions or locating deal ids for stage updates.\n\n### update-deal-stage\n- Purpose: Change only the pipeline stage field on a deal.\n- Parameters: id (deal UUID, required), stage (string, required).\n- Use when: User asks to advance, win, lose, or rename stage—verify deal id first.\n\n### log-activity\n- Purpose: Insert an activity row on a contact (calls, emails, meetings, notes).\n- Parameters: contact_id (UUID, required), type (string, required—use clear verbs: call, email, meeting, note, etc.), notes (string, optional).\n- Use when: User asks to record a touchpoint or CRM note.\n\nYou cannot create companies/contacts/deals, delete rows, or run bulk exports—only the seven tools above. Combine them in clear sequences.",
+  "model": "gpt-5-nano",
+  "reasoningEffort": "low",
+  "maxOutputTokens": 4000,
+  "tables": ["companies", "contacts", "deals", "activities"],
+  "tools": [
+    {
+      "name": "list-companies",
+      "description": "List all companies.",
+      "parameters": {},
+      "implementation": {
+        "kind": "select",
+        "table": "companies",
+        "columns": "*",
+        "orderBy": "name",
+        "orderAsc": true,
+        "limit": 100
+      }
+    },
+    {
+      "name": "get-company-by-id",
+      "description": "Fetch a company by UUID.",
+      "parameters": {
+        "id": { "type": "string", "description": "Company UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "companies",
+        "columns": "*",
+        "single": true,
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    },
+    {
+      "name": "list-contacts-by-company",
+      "description": "List contacts at a company.",
+      "parameters": {
+        "company_id": { "type": "string", "description": "Company UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "contacts",
+        "columns": "*",
+        "filters": [{ "column": "company_id", "op": "eq", "value": "{{params.company_id}}" }],
+        "orderBy": "email",
+        "orderAsc": true,
+        "limit": 100
+      }
+    },
+    {
+      "name": "get-contact-by-id",
+      "description": "Fetch a contact by UUID.",
+      "parameters": {
+        "id": { "type": "string", "description": "Contact UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "contacts",
+        "columns": "*",
+        "single": true,
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    },
+    {
+      "name": "list-deals-by-company",
+      "description": "List deals for a company.",
+      "parameters": {
+        "company_id": { "type": "string", "description": "Company UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "deals",
+        "columns": "*",
+        "filters": [{ "column": "company_id", "op": "eq", "value": "{{params.company_id}}" }],
+        "orderBy": "created_at",
+        "orderAsc": false,
+        "limit": 50
+      }
+    },
+    {
+      "name": "update-deal-stage",
+      "description": "Update pipeline stage for a deal.",
+      "parameters": {
+        "id": { "type": "string", "description": "Deal UUID", "required": true },
+        "stage": { "type": "string", "description": "New stage e.g. prospect, won", "required": true }
+      },
+      "implementation": {
+        "kind": "update",
+        "table": "deals",
+        "values": { "stage": "{{params.stage}}" },
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    },
+    {
+      "name": "log-activity",
+      "description": "Record an activity on a contact.",
+      "parameters": {
+        "contact_id": { "type": "string", "description": "Contact UUID", "required": true },
+        "type": { "type": "string", "description": "Activity type e.g. call, email, meeting", "required": true },
+        "notes": { "type": "string", "description": "Notes", "required": false }
+      },
+      "implementation": {
+        "kind": "insert",
+        "table": "activities",
+        "values": {
+          "contact_id": "{{params.contact_id}}",
+          "type": "{{params.type}}",
+          "notes": "{{params.notes}}"
+        }
+      }
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-05-03T08:45:00.000Z"
+}

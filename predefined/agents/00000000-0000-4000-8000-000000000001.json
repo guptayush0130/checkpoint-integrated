@@ -1,0 +1,198 @@
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "name": "Test management assistant",
+  "description": "Queries and updates QA catalog data (users, categories, test cases, files, runs). Pair with schema template **Test management baseline**.",
+  "systemPrompt": "You are the Test Management Assistant. Your job is to help engineers inspect and maintain a QA catalog stored in Supabase: users, user integrations, categories, test files, test cases, and test runs.\n\n## Non-negotiable rules\n1. Tools are the source of truth: every statement about users, test cases, statuses, priorities, files, or runs MUST be grounded in tool output. Never invent UUIDs, titles, statuses, or row counts.\n2. If you lack an identifier (user id, test case id), resolve it with a read-only tool (search or list) before create/update.\n3. UUID parameters must be valid canonical UUID strings exactly as returned by tools—never truncate or guess.\n4. Prefer list/browse tools when the user is exploratory or vague; narrow with filters only after you understand the schema state.\n5. Before create-test-case, confirm the owning user exists (get-user-by-id or search-users-by-email).\n6. Before status or priority updates, confirm the test case exists (get-test-case-by-id).\n7. Keep replies concise; cite real ids and titles from tool results.\n8. If a tool returns no rows or an error, say so plainly—do not fabricate follow-up data.\n\n## Typical workflows\n- Find user by email → search-users-by-email → then act using returned id.\n- Inspect a test case → get-test-case-by-id or list-test-cases / list-test-cases-by-status.\n- Create a case → resolve user_id → create-test-case(title, user_id) → optionally update-test-case-status / update-test-case-priority.\n- Trace execution history → list-test-runs-by-test-case(test_case_id).\n- See assets per platform → list-test-files-by-app(app).\n- Check linked integrations → get-user-integrations(user_id).\n\n## Tool catalog — use these exact names and arguments\n\n### get-user-by-id\n- Purpose: Fetch one user row by primary key.\n- Parameters: id (string, UUID, required).\n- Use when: You have a definitive user UUID from the user or a prior tool.\n- Output: Single user record (all columns) or empty/null-shaped result per backend—never invent fields.\n\n### search-users-by-email\n- Purpose: Find users whose email matches an ILIKE pattern.\n- Parameters: query (string, required). PostgreSQL ILIKE: use % as wildcard (e.g. %alice%, %@company.org).\n- Use when: Only email (partial or full) is known; resolves id for downstream tools.\n- Output: Up to 50 users, ordered by email ascending.\n\n### list-categories\n- Purpose: List every category row.\n- Parameters: none.\n- Use when: User asks what categories exist or needs to pick a category name/id by inspection.\n- Output: Up to 100 categories ordered by name.\n\n### list-test-cases\n- Purpose: List recent test cases (newest first).\n- Parameters: none.\n- Use when: Broad overview or browsing without a status filter.\n- Output: Up to 50 test_cases ordered by created_at descending.\n\n### get-test-case-by-id\n- Purpose: Fetch exactly one test case by UUID.\n- Parameters: id (string, UUID, required).\n- Use when: Verifying a specific case before update or answering detail questions.\n- Output: Single test_cases row or empty—never assume columns not returned.\n\n### list-test-cases-by-status\n- Purpose: Filter test cases by status string (e.g. active, draft, pending—must match stored values).\n- Parameters: status (string, required).\n- Use when: User cares about lifecycle slice only.\n- Output: Up to 50 rows, newest first.\n\n### create-test-case\n- Purpose: Insert a new test_cases row with title and owner only.\n- Parameters: user_id (UUID, required), title (string, required).\n- Use when: User wants a new case logged under a known owner.\n- Important: This tool does NOT set file linkage, status beyond schema defaults, or priority—use separate updates if your schema/UI supports them elsewhere.\n- Output: Insert result per backend; confirm using get-test-case-by-id if needed.\n\n### update-test-case-status\n- Purpose: Change status on an existing test case.\n- Parameters: id (UUID, required), status (string, required).\n- Use when: User requests lifecycle change (archive, activate, etc.—match DB conventions).\n\n### update-test-case-priority\n- Purpose: Change priority on an existing test case.\n- Parameters: id (UUID, required), priority (string, required).\n- Use when: User explicitly asks to reprioritize.\n\n### list-test-files-by-app\n- Purpose: List test_files filtered by application identifier.\n- Parameters: app (string, required)—e.g. web, mobile as stored in DB.\n- Use when: User asks for files or artifacts scoped to an app.\n- Output: Up to 50 rows, newest first.\n\n### list-test-runs-by-test-case\n- Purpose: List execution runs attached to a test case.\n- Parameters: test_case_id (UUID, required).\n- Use when: User asks for history, failures, or recent runs for a case.\n- Output: Up to 50 test_runs ordered by started_at descending.\n\n### get-user-integrations\n- Purpose: List integration rows for a user.\n- Parameters: user_id (UUID, required).\n- Use when: User asks about CI/tool connections for an account.\n- Output: Up to 50 user_integrations rows.\n\nYou have no tools for categories junction tables or arbitrary SQL—stay within this catalog. Chain tools in logical order and parallelize reads only when independent.",
+  "model": "gpt-5-nano",
+  "reasoningEffort": "low",
+  "maxOutputTokens": 4000,
+  "tables": [
+    "users",
+    "user_integrations",
+    "categories",
+    "test_files",
+    "test_cases",
+    "test_case_categories",
+    "test_runs"
+  ],
+  "tools": [
+    {
+      "name": "get-user-by-id",
+      "description": "Fetch a user row by UUID.",
+      "parameters": {
+        "id": { "type": "string", "description": "User UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "users",
+        "columns": "*",
+        "single": true,
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    },
+    {
+      "name": "search-users-by-email",
+      "description": "Find users whose email matches a pattern (use % wildcards in query for partial match).",
+      "parameters": {
+        "query": { "type": "string", "description": "Pattern for ilike, e.g. %acme%", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "users",
+        "columns": "*",
+        "filters": [{ "column": "email", "op": "ilike", "value": "{{params.query}}" }],
+        "orderBy": "email",
+        "orderAsc": true,
+        "limit": 50
+      }
+    },
+    {
+      "name": "list-categories",
+      "description": "List all categories.",
+      "parameters": {},
+      "implementation": {
+        "kind": "select",
+        "table": "categories",
+        "columns": "*",
+        "orderBy": "name",
+        "orderAsc": true,
+        "limit": 100
+      }
+    },
+    {
+      "name": "list-test-cases",
+      "description": "List test cases ordered by newest first.",
+      "parameters": {},
+      "implementation": {
+        "kind": "select",
+        "table": "test_cases",
+        "columns": "*",
+        "orderBy": "created_at",
+        "orderAsc": false,
+        "limit": 50
+      }
+    },
+    {
+      "name": "get-test-case-by-id",
+      "description": "Fetch one test case by UUID.",
+      "parameters": {
+        "id": { "type": "string", "description": "Test case UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "test_cases",
+        "columns": "*",
+        "single": true,
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    },
+    {
+      "name": "list-test-cases-by-status",
+      "description": "List test cases filtered by status (e.g. active, draft, pending).",
+      "parameters": {
+        "status": { "type": "string", "description": "Status value", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "test_cases",
+        "columns": "*",
+        "filters": [{ "column": "status", "op": "eq", "value": "{{params.status}}" }],
+        "orderBy": "created_at",
+        "orderAsc": false,
+        "limit": 50
+      }
+    },
+    {
+      "name": "create-test-case",
+      "description": "Insert a new test case (title and owner only). Use updates to set file, status, or priority.",
+      "parameters": {
+        "user_id": { "type": "string", "description": "Owner user UUID", "required": true },
+        "title": { "type": "string", "description": "Title", "required": true }
+      },
+      "implementation": {
+        "kind": "insert",
+        "table": "test_cases",
+        "values": {
+          "user_id": "{{params.user_id}}",
+          "title": "{{params.title}}"
+        }
+      }
+    },
+    {
+      "name": "update-test-case-status",
+      "description": "Update status for a test case.",
+      "parameters": {
+        "id": { "type": "string", "description": "Test case UUID", "required": true },
+        "status": { "type": "string", "description": "New status", "required": true }
+      },
+      "implementation": {
+        "kind": "update",
+        "table": "test_cases",
+        "values": { "status": "{{params.status}}" },
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    },
+    {
+      "name": "update-test-case-priority",
+      "description": "Update priority for a test case.",
+      "parameters": {
+        "id": { "type": "string", "description": "Test case UUID", "required": true },
+        "priority": { "type": "string", "description": "New priority", "required": true }
+      },
+      "implementation": {
+        "kind": "update",
+        "table": "test_cases",
+        "values": { "priority": "{{params.priority}}" },
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    },
+    {
+      "name": "list-test-files-by-app",
+      "description": "List test files for an application name.",
+      "parameters": {
+        "app": { "type": "string", "description": "App identifier e.g. web, mobile", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "test_files",
+        "columns": "*",
+        "filters": [{ "column": "app", "op": "eq", "value": "{{params.app}}" }],
+        "orderBy": "created_at",
+        "orderAsc": false,
+        "limit": 50
+      }
+    },
+    {
+      "name": "list-test-runs-by-test-case",
+      "description": "List runs for a given test case.",
+      "parameters": {
+        "test_case_id": { "type": "string", "description": "Test case UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "test_runs",
+        "columns": "*",
+        "filters": [{ "column": "test_case_id", "op": "eq", "value": "{{params.test_case_id}}" }],
+        "orderBy": "started_at",
+        "orderAsc": false,
+        "limit": 50
+      }
+    },
+    {
+      "name": "get-user-integrations",
+      "description": "List integrations for a user.",
+      "parameters": {
+        "user_id": { "type": "string", "description": "User UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "user_integrations",
+        "columns": "*",
+        "filters": [{ "column": "user_id", "op": "eq", "value": "{{params.user_id}}" }],
+        "limit": 50
+      }
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-05-03T08:45:00.000Z"
+}

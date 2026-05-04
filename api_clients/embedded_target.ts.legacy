@@ -1,0 +1,237 @@
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import {
+  CustomAgentDefinition,
+  LLMClient,
+  LLMToolSchema,
+  TargetRunResult,
+  TargetTurnRecord,
+  ToolCallRecord,
+  ToolDefinition
+} from './types';
+
+export interface TargetAgentRunnerOptions {
+  llmClient: LLMClient;
+  agent: CustomAgentDefinition;
+  supabaseUrl: string;
+  supabaseKey: string;
+  model: string;
+  maxToolIterations?: number;
+  /** Called whenever the target produces output (after each LLM turn). */
+  onTurn?: (turn: TargetTurnRecord) => void;
+  /** Called after each executed tool. */
+  onToolCall?: (record: ToolCallRecord) => void;
+}
+
+/**
+ * Drives a custom agent through a tool-calling loop against the mock
+ * Supabase. Records every LLM turn and tool execution for the judge.
+ */
+export class TargetAgentRunner {
+  private llmClient: LLMClient;
+  private agent: CustomAgentDefinition;
+  private supabase: SupabaseClient;
+  private toolMap: Record<string, ToolDefinition> = {};
+  private toolCalls: ToolCallRecord[] = [];
+  private model: string;
+  private maxToolIterations: number;
+  private onTurn?: (turn: TargetTurnRecord) => void;
+  private onToolCall?: (record: ToolCallRecord) => void;
+
+  constructor(opts: TargetAgentRunnerOptions) {
+    this.llmClient = opts.llmClient;
+    this.agent = opts.agent;
+    this.model = opts.model;
+    this.maxToolIterations = opts.maxToolIterations || 10;
+    this.onTurn = opts.onTurn;
+    this.onToolCall = opts.onToolCall;
+    this.supabase = createClient(opts.supabaseUrl, opts.supabaseKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    for (const tool of opts.agent.tools) {
+      this.toolMap[tool.name] = tool;
+    }
+  }
+
+  async run(userMessage: string): Promise<TargetRunResult> {
+    const inputItems: any[] = [{ role: 'user', content: userMessage }];
+    const turns: TargetTurnRecord[] = [];
+    const reasoningSummaries: string[] = [];
+    let finalResponse = '';
+
+    for (let iteration = 1; iteration <= this.maxToolIterations; iteration++) {
+      const response = await this.llmClient.createResponse({
+        model: this.model,
+        instructions: this.agent.systemPrompt,
+        input: inputItems,
+        tools: this.toLLMTools(this.agent.tools),
+        temperature: this.agent.config?.temperature,
+        max_output_tokens:
+          this.agent.config?.max_output_tokens || this.agent.config?.max_tokens,
+        reasoning_effort: this.agent.config?.reasoning_effort
+      });
+
+      const functionCalls = response.output
+        .filter((item: any) => item?.type === 'function_call')
+        .map((item: any) => ({
+          callId: String(item.call_id || ''),
+          name: String(item.name || ''),
+          arguments: parseToolArguments(item.arguments)
+        }));
+
+      const turn: TargetTurnRecord = {
+        iteration,
+        responseText: response.outputText,
+        rawOutput: response.output,
+        functionCalls
+      };
+      turns.push(turn);
+      this.onTurn?.(turn);
+
+      finalResponse = response.outputText || finalResponse;
+      reasoningSummaries.push(...extractReasoningSummaries(response.output));
+
+      inputItems.push(...response.output);
+
+      if (functionCalls.length === 0) {
+        return {
+          finalResponse,
+          turns,
+          toolCalls: this.toolCalls,
+          reasoningSummaries,
+          reachedMaxToolIterations: false
+        };
+      }
+
+      for (const call of functionCalls) {
+        const output = await this.executeTool(call.name, call.arguments);
+        inputItems.push({
+          type: 'function_call_output',
+          call_id: call.callId,
+          output: JSON.stringify(output)
+        });
+      }
+    }
+
+    return {
+      finalResponse,
+      turns,
+      toolCalls: this.toolCalls,
+      reasoningSummaries,
+      reachedMaxToolIterations: true
+    };
+  }
+
+  private async executeTool(name: string, args: Record<string, any>) {
+    const start = Date.now();
+    const tool = this.toolMap[name];
+    const record: ToolCallRecord = {
+      toolName: name,
+      params: args,
+      duration: 0,
+      timestamp: new Date().toISOString()
+    };
+
+    if (!tool) {
+      record.error = `Tool not found: ${name}`;
+      record.duration = Date.now() - start;
+      this.toolCalls.push(record);
+      this.onToolCall?.(record);
+      return { ok: false, error: record.error };
+    }
+
+    try {
+      const result = await tool.execute(this.supabase, args || {});
+      record.result = sanitizeForLog(result);
+      record.duration = Date.now() - start;
+      this.toolCalls.push(record);
+      this.onToolCall?.(record);
+      return { ok: true, result };
+    } catch (err: any) {
+      record.error = err?.message || String(err);
+      record.duration = Date.now() - start;
+      this.toolCalls.push(record);
+      this.onToolCall?.(record);
+      return { ok: false, error: record.error };
+    }
+  }
+
+  private toLLMTools(tools: ToolDefinition[]): LLMToolSchema[] {
+    return tools.map((tool) => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description || `Execute ${tool.name}`,
+      parameters: normalizeParameters(tool.parameters)
+    }));
+  }
+}
+
+function parseToolArguments(argumentsValue: any): Record<string, any> {
+  if (!argumentsValue) return {};
+  if (typeof argumentsValue === 'object') return argumentsValue;
+  try {
+    return JSON.parse(argumentsValue);
+  } catch {
+    return {};
+  }
+}
+
+function normalizeParameters(parameters?: Record<string, any>): Record<string, any> {
+  if (!parameters || Object.keys(parameters).length === 0) {
+    return { type: 'object', properties: {}, additionalProperties: false };
+  }
+  if (parameters.type === 'object' || parameters.properties) {
+    return normalizeSchema(parameters);
+  }
+  return {
+    type: 'object',
+    properties: Object.fromEntries(
+      Object.entries(parameters).map(([key, value]) => [key, normalizeSchema(value)])
+    ),
+    additionalProperties: true
+  };
+}
+
+function normalizeSchema(schema: any): Record<string, any> {
+  if (!schema || typeof schema !== 'object') return {};
+  const normalized: Record<string, any> = { ...schema };
+  if (normalized.type === 'array' && !normalized.items) normalized.items = {};
+  if (normalized.type === 'object') {
+    normalized.properties = Object.fromEntries(
+      Object.entries(normalized.properties || {}).map(([key, value]) => [key, normalizeSchema(value)])
+    );
+    if (typeof normalized.additionalProperties === 'undefined') {
+      normalized.additionalProperties = true;
+    }
+  }
+  return normalized;
+}
+
+function extractReasoningSummaries(output: any[]): string[] {
+  const summaries: string[] = [];
+  for (const item of output) {
+    if (item?.type !== 'reasoning') continue;
+    if (typeof item.summary === 'string') {
+      summaries.push(item.summary);
+      continue;
+    }
+    if (Array.isArray(item.summary)) {
+      for (const part of item.summary) {
+        if (typeof part?.text === 'string') summaries.push(part.text);
+      }
+    }
+  }
+  return summaries;
+}
+
+function sanitizeForLog(value: any): any {
+  if (value === null || value === undefined) return value;
+  try {
+    const json = JSON.stringify(value);
+    if (json.length > 4000) {
+      return JSON.parse(json.slice(0, 4000) + '"... [truncated]"');
+    }
+    return JSON.parse(json);
+  } catch {
+    return String(value).slice(0, 2000);
+  }
+}

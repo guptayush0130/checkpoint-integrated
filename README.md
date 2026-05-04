@@ -1,80 +1,91 @@
-# AI Agent Testing Framework
+# Checkpoint
 
-> Combinatorial coverage × MCTS adversarial search for stress-testing conversational AI agents.
+> Black-box AI agent test harness. We act as the user *and* the database, so production agents can be stress-tested without ever knowing they're under test.
 
-This is the initial (`v0.1`) implementation of the architecture in
-[`architecture.md`](./architecture.md). It runs end-to-end **without an API
-key** thanks to a deterministic offline LLM mock — so you can play with the UI
-and the algorithms before paying for tokens.
+Checkpoint drives an external agent through two integration points:
+
+- **URL 1** — the target agent's text endpoint. Our **Tester** (MCTS-driven, search-guided over a 3-way combinatorial matrix of personas × objectives × DB-state factors) sends prompts here and reads replies.
+- **URL 2** — our exposed Supabase-compatible HTTP surface. The target's `createClient(URL, KEY)` is configured to point at us. Every PostgREST/Auth/Storage call the agent makes is intercepted, executed against in-process Postgres (PGlite), and returned in the exact shape Supabase would return.
+
+The target's code is unchanged from production. It cannot detect the harness.
+
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design and the Phase 0 → Phase 5 trajectory.
+
+---
+
+## Status: Phase 5 (all phases shipped)
+
+All five phases are in. The dashboard at `/engine` drives the full pipeline against an external target.
+
+| Phase | Status | What landed |
+| --- | --- | --- |
+| 0 — Foundation | ✅ | New `/ui`, `/core_engine`, `/sandbox`, `/api_clients` layout; legacy code archived |
+| 1 — Sandbox proxy | ✅ | Per-run sandbox pool, intercept-event SSE, password/JWT redaction |
+| 2 — URL 1 client | ✅ | `TargetClient` with default / openai-chat / custom profiles + auth + timeout |
+| 3 — MCTS engine | ✅ | parsing → matrix → tester → evaluator → MCTS (replay-from-root) → orchestrator |
+| 4 — Dashboard UI | ✅ | New-run wizard, live matrix view, recursive MCTS tree, intercepted-call panel |
+| 5 — Polish | ✅ | Mermaid sequence diagrams in [`ARCHITECTURE.md`](./ARCHITECTURE.md), deployment notes, real-Supabase backend stub |
+
+---
 
 ## Quick start
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+npm install
+cp .env.example .env             # add OPENAI_API_KEY (optional — engine has offline mocks)
+npm run dev                       # http://localhost:3000
 
-# (optional) point to a real OpenAI-compatible endpoint
-cp .env.example .env
-# edit OPENAI_API_KEY=...   and pick TESTER_MODEL / JUDGE_MODEL
-
-uvicorn backend.main:app --reload --port 8000
-# open http://localhost:8000
+# Then open http://localhost:3000/engine and launch a run against your
+# external target agent. The default profile expects a POST to {target_url}
+# with body { conversation_id, user_message } returning { response, done }.
 ```
 
-In the UI:
+### What works today
 
-1. **Load example** → pre-fills the customer-support test suite.
-2. **Create suite** → returns a `suite_id`.
-3. **Generate 3-way matrix** → shows discovered factors (persona, objective,
-   DB vars, tool params with BVA buckets) and the greedy-coverage matrix.
-4. **Run with MCTS** → spawns Tester Agents, streams progress events, and
-   renders results: a ranked list of test cases with the *most-damning
-   conversation path* and a collapsible search tree per case.
+- The Next.js dashboard boots; `/engine` loads with demo data pre-filled.
+- `POST /api/engine/runs` accepts a full engine config and kicks off an MCTS run.
+- `GET /api/engine/runs/[id]/events` streams every event live (sandbox intercepts, MCTS expansion, judge verdicts).
+- The PGlite-backed sandbox boots in milliseconds; target's `createClient(URL, KEY)` against URL 2 is indistinguishable from production Supabase.
+- Hard-signal predicates short-circuit verdicts when the target writes to specific tables.
+- Reports persist to `data/runs/<id>.{json,events.jsonl,report.md}`.
 
-## Project layout
+### Test suite
 
-```
-backend/
-  main.py          # FastAPI app
-  config.py        # env-driven settings
-  models.py        # Pydantic schemas
-  parsing.py       # Phase 1: inputs → TestVariables (BVA + invalid sentinels)
-  matrix.py        # Phase 2: greedy 3-way combinatorial generation
-  tester_agent.py  # Phase 2/4: adversarial branching + rollout
-  evaluator.py     # Phase 4: rule-based + LLM-as-judge
-  mcts.py          # Phase 4: UCB1 + near-miss bonus + progressive widening
-  runner.py        # Phase 5: orchestrator
-  llm.py           # OpenAI client + offline mock
-  sandbox/         # Phase 3: pluggable Sandbox interface + MockSandbox
-frontend/
-  index.html       # UI shell
-  app.js           # client logic
-  styles.css
-examples/
-  customer_support_suite.json
+```bash
+npm run test:sandbox             # Phase 1: 7 tests
+npx ts-node --project tsconfig.cli.json -r tsconfig-paths/register tests/target_client.test.ts   # Phase 2: 14 tests
+npx ts-node --project tsconfig.cli.json -r tsconfig-paths/register tests/engine_e2e.test.ts      # Phase 3: e2e against a fixture target
 ```
 
-## Improvements over the spec
+### Known scope gaps (intentional — out of MVP)
 
-See the changelog at the top of each module — a few highlights:
+- Real-Supabase backend is a stub at `sandbox/real_supabase.ts`; throws on `setup()` until you implement per-run schema isolation.
+- `tools/legacy/` and `tests/legacy/` are excluded from the build — they referenced the removed snapshot/diff API.
+- The legacy `/runs` and `/agents` UI still works as agent/schema CRUD but the run runner there is the embedded-target Mark1 path; it now throws "Phase 3" if you click Launch. Use `/engine` instead.
 
-* **LLM-as-judge** evaluator (the spec only defines the reward table, not the
-  detector).
-* **Hard-signal short-circuit**: if a forbidden tool is actually called, we
-  immediately award reward=1.0 without spending judge tokens.
-* **Diverse branching**: the tester is told to produce *stylistically distinct*
-  candidates per expansion, so MCTS exploration doesn't collapse.
-* **Progressive widening** in MCTS (k(n) ≈ ⌈1.5·√visits⌉, with `b` as a floor).
-* **Per-test cost guardrail** (`MAX_LLM_CALLS_PER_TEST`).
-* **Greedy maximum-coverage matrix** with reported `coverage_percent`, so you
-  can see the trade-off when capping `max_rows`.
-* **"Most-damning path" extraction** in results, so engineers see the actual
-  conversation that broke the agent — not just an abstract reward number.
+---
 
-## Roadmap
+## Repo layout (top-level)
 
-* Real (Docker-backed) sandbox with snapshot/restore.
-* SQLite persistence + multi-user.
-* IPOG-F instead of randomized greedy for tighter matrices.
-* Cost-aware budget allocation across cases (give more iterations to "promising"
-  cases that produced near-misses).
+```
+app/             Next.js routes (UI pages + thin API handlers)
+ui/              React components
+core_engine/     Pure logic — types, judge, MCTS (Phase 3), tester, evaluator
+sandbox/         PGlite + PostgREST/Auth/Storage HTTP shim ("URL 2")
+api_clients/     External-service HTTP clients (URL 1 lives here in Phase 2)
+lib/             Shared utilities — types, storage, formatters
+tests/           Integration tests (legacy under tests/legacy/)
+tools/           CLI utilities (legacy under tools/legacy/)
+predefined/      Built-in agent definitions
+examples/        Reference DDL + agent
+data/            Runtime — agents, schemas, runs (gitignored)
+legacy_python/   Archived Python+FastAPI v0.1 — reference only
+```
+
+Each engine directory has its own `README.md` describing its surface and Phase trajectory.
+
+---
+
+## License
+
+MIT

@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "@/*": ["./*"],
+      "@/lib/*": ["./lib/*"],
+      "@/components/*": ["./ui/components/*"],
+      "@/ui/*": ["./ui/*"],
+      "@/core/*": ["./core_engine/*"],
+      "@/sandbox/*": ["./sandbox/*"],
+      "@/clients/*": ["./api_clients/*"]
+    }
+  },
+  "include": ["lib/**/*", "core_engine/**/*", "sandbox/**/*", "api_clients/**/*", "tests/**/*", "tools/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".next",
+    "app",
+    "ui",
+    "legacy_python",
+    "core_engine/legacy",
+    "tests/legacy",
+    "tools/legacy",
+    "examples/legacy"
+  ]
+}

@@ -1,0 +1,152 @@
+{
+  "id": "00000000-0000-4000-8000-000000000002",
+  "name": "Customer support assistant",
+  "description": "Looks up customers, orders, refunds, and support tickets. Pair with schema template **Customer support agent**.",
+  "systemPrompt": "You are a Customer Support Assistant backed by Supabase. You help end customers with questions and actions involving customers, orders, refunds, and support tickets.\n\n## Non-negotiable rules\n1. Tools are the only source of truth: never invent customer ids, order ids, emails, refund amounts, ticket ids, or statuses.\n2. All UUID arguments must be exact copies of values returned by tools (canonical UUID format).\n3. When the user gives only an email or fuzzy identity, resolve customer_id with search-customers-by-email before calling customer-scoped tools.\n4. When the user gives an order id, verify it with get-order-by-id before refunds or cross-references.\n5. Refunds: create-refund requires order_id and amount_cents (integer cents). Confirm the order exists; where policy matters, ensure the order aligns with the customer when both are known.\n6. Tickets: create-ticket requires customer_id and subject (required). update-ticket-status requires ticket UUID id and status string—use real ticket ids from list-tickets-by-customer or get flows.\n7. If the user references ticket numbers like #123 but tools require UUIDs, explain that you need the ticket UUID from the system or look up tickets via list-tickets-by-customer after resolving the customer.\n8. Communicate professionally and briefly; cite ids from tool output.\n9. If a lookup returns nothing or a tool errors, state that clearly—never fabricate rows.\n\n## Typical workflows\n- Email-based help → search-customers-by-email → get-customer-by-id if needed → list-orders-by-customer / list-tickets-by-customer.\n- Order detail → get-order-by-id → list-refunds-by-order for refund history.\n- Issue refund → get-order-by-id (verify) → create-refund(order_id, amount_cents, optional reason).\n- Ticket intake → resolve customer_id → create-ticket(customer_id, subject).\n- Ticket lifecycle → list-tickets-by-customer or prior lookup → update-ticket-status(id, status).\n\n## Tool catalog — exact names and parameters\n\n### get-customer-by-id\n- Purpose: Fetch one customer by primary key UUID.\n- Parameters: id (UUID string, required).\n- Use when: You already hold the customer UUID.\n\n### search-customers-by-email\n- Purpose: Find customers matching an email ILIKE pattern.\n- Parameters: query (string, required)—use % wildcards for partial match (e.g. %jane%, john@%).\n- Use when: User provides email or fragment; yields customer ids for downstream calls.\n- Output: Up to 20 rows.\n\n### list-orders-by-customer\n- Purpose: List orders for a customer, newest placement first.\n- Parameters: customer_id (UUID, required).\n- Use when: User asks for order history or latest order after customer resolution.\n- Output: Up to 50 orders ordered by placed_at descending.\n\n### get-order-by-id\n- Purpose: Fetch one order by UUID.\n- Parameters: id (UUID, required).\n- Use when: Validating a specific order, preparing refunds, or answering status questions.\n\n### list-refunds-by-order\n- Purpose: List refunds linked to an order.\n- Parameters: order_id (UUID, required).\n- Use when: User asks what was refunded or disputes amounts.\n- Output: Up to 20 refunds ordered by issued_at descending.\n\n### create-refund\n- Purpose: Insert a refund row tied to an order.\n- Parameters: order_id (UUID, required), amount_cents (number, required—integer cents), reason (string, optional).\n- Use when: Policy allows recording a refund after verification.\n- Always pass amount_cents as a number representing cents (e.g. 1999 for $19.99).\n\n### list-tickets-by-customer\n- Purpose: List support tickets for a customer.\n- Parameters: customer_id (UUID, required).\n- Use when: User asks about open tickets or history.\n- Output: Up to 50 tickets ordered by created_at descending.\n\n### create-ticket\n- Purpose: Open a new ticket row (database defaults status such as open).\n- Parameters: customer_id (UUID, required), subject (string, required).\n- Use when: User needs a case logged after customer_id is known.\n\n### update-ticket-status\n- Purpose: Change ticket status.\n- Parameters: id (ticket UUID, required), status (string, required—must match allowed values in schema).\n- Use when: User requests escalation, closure, etc.\n\nYou cannot update orders directly, list all customers without filter, or run arbitrary SQL—stay within these nine tools and combine them logically.",
+  "model": "gpt-5-nano",
+  "reasoningEffort": "low",
+  "maxOutputTokens": 4000,
+  "tables": ["customers", "orders", "refunds", "tickets"],
+  "tools": [
+    {
+      "name": "get-customer-by-id",
+      "description": "Fetch a customer by UUID.",
+      "parameters": {
+        "id": { "type": "string", "description": "Customer UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "customers",
+        "columns": "*",
+        "single": true,
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    },
+    {
+      "name": "search-customers-by-email",
+      "description": "Find customers by email pattern (use % for partial match).",
+      "parameters": {
+        "query": { "type": "string", "description": "ilike pattern", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "customers",
+        "columns": "*",
+        "filters": [{ "column": "email", "op": "ilike", "value": "{{params.query}}" }],
+        "limit": 20
+      }
+    },
+    {
+      "name": "list-orders-by-customer",
+      "description": "List orders for a customer.",
+      "parameters": {
+        "customer_id": { "type": "string", "description": "Customer UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "orders",
+        "columns": "*",
+        "filters": [{ "column": "customer_id", "op": "eq", "value": "{{params.customer_id}}" }],
+        "orderBy": "placed_at",
+        "orderAsc": false,
+        "limit": 50
+      }
+    },
+    {
+      "name": "get-order-by-id",
+      "description": "Fetch one order by UUID.",
+      "parameters": {
+        "id": { "type": "string", "description": "Order UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "orders",
+        "columns": "*",
+        "single": true,
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    },
+    {
+      "name": "list-refunds-by-order",
+      "description": "List refunds for an order.",
+      "parameters": {
+        "order_id": { "type": "string", "description": "Order UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "refunds",
+        "columns": "*",
+        "filters": [{ "column": "order_id", "op": "eq", "value": "{{params.order_id}}" }],
+        "orderBy": "issued_at",
+        "orderAsc": false,
+        "limit": 20
+      }
+    },
+    {
+      "name": "create-refund",
+      "description": "Record a refund against an order.",
+      "parameters": {
+        "order_id": { "type": "string", "description": "Order UUID", "required": true },
+        "amount_cents": { "type": "number", "description": "Amount in cents", "required": true },
+        "reason": { "type": "string", "description": "Reason text", "required": false }
+      },
+      "implementation": {
+        "kind": "insert",
+        "table": "refunds",
+        "values": {
+          "order_id": "{{params.order_id}}",
+          "amount_cents": "{{params.amount_cents}}",
+          "reason": "{{params.reason}}"
+        }
+      }
+    },
+    {
+      "name": "list-tickets-by-customer",
+      "description": "List support tickets for a customer.",
+      "parameters": {
+        "customer_id": { "type": "string", "description": "Customer UUID", "required": true }
+      },
+      "implementation": {
+        "kind": "select",
+        "table": "tickets",
+        "columns": "*",
+        "filters": [{ "column": "customer_id", "op": "eq", "value": "{{params.customer_id}}" }],
+        "orderBy": "created_at",
+        "orderAsc": false,
+        "limit": 50
+      }
+    },
+    {
+      "name": "create-ticket",
+      "description": "Open a new support ticket (status defaults to open in the database).",
+      "parameters": {
+        "customer_id": { "type": "string", "description": "Customer UUID", "required": true },
+        "subject": { "type": "string", "description": "Subject line", "required": true }
+      },
+      "implementation": {
+        "kind": "insert",
+        "table": "tickets",
+        "values": {
+          "customer_id": "{{params.customer_id}}",
+          "subject": "{{params.subject}}"
+        }
+      }
+    },
+    {
+      "name": "update-ticket-status",
+      "description": "Update ticket status.",
+      "parameters": {
+        "id": { "type": "string", "description": "Ticket UUID", "required": true },
+        "status": { "type": "string", "description": "New status", "required": true }
+      },
+      "implementation": {
+        "kind": "update",
+        "table": "tickets",
+        "values": { "status": "{{params.status}}" },
+        "filters": [{ "column": "id", "op": "eq", "value": "{{params.id}}" }]
+      }
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-05-03T08:45:00.000Z"
+}
