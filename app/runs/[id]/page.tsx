@@ -1,24 +1,18 @@
-import { notFound } from 'next/navigation';
-import { Section } from '@/components/ui/card';
-import { LiveRun } from '@/components/runs/live-run';
-import { getRun, readRunEvents, readRunReportJson } from '@/lib/storage';
+/**
+ * Legacy /runs/[id] route — every Mark1 audit run is now served through
+ * /engine/[id] (Phase 4 dashboard). Keep this path alive but redirect
+ * server-side so any bookmarks, browser history, or cached form pushes
+ * land on the right page.
+ */
+import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
-export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LegacyRunRedirect({
+  params
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
-  const run = await getRun(id);
-  if (!run) notFound();
-  const [events, report] = await Promise.all([readRunEvents(id), readRunReportJson(id)]);
-  return (
-    <div className="container-fixed">
-      <Section
-        marker={`§ 032  Run / ${run.id.slice(0, 6)}`}
-        title="Audit telemetry"
-        description="Live agent reasoning, tool calls, sandbox state, and rubric scoring — preserved for re-inspection."
-      >
-        <LiveRun initialRun={run} initialEvents={events} initialReport={report} />
-      </Section>
-    </div>
-  );
+  redirect(`/engine/${id}`);
 }

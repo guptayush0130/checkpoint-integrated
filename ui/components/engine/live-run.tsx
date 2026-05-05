@@ -51,9 +51,28 @@ export function LiveEngineRun({ runId, initialSummary, initialEvents, initialRep
   const cases = useMemo(() => extractCases(events, report), [events, report]);
   const intercepts = useMemo(() => events.filter((e) => e.type === 'sandbox.intercept'), [events]);
 
+  // Live tile stats. The persisted RunSummary only updates on run.completed,
+  // so while the run is in flight we derive case counts from case.completed
+  // events as they arrive.
+  const liveStats = useMemo(() => {
+    const completed = events.filter((e) => e.type === 'case.completed');
+    let failures = 0;
+    let heldLine = 0;
+    for (const e of completed) {
+      if (e.payload?.failureFound) failures++;
+      else if (!e.payload?.nearMissFound) heldLine++;
+    }
+    return { cases: completed.length, failures, heldLine };
+  }, [events]);
+
   return (
     <div className="space-y-6">
-      <Header summary={summary} runId={runId} eventCount={events.length} />
+      <Header
+        summary={summary}
+        runId={runId}
+        eventCount={events.length}
+        liveStats={liveStats}
+      />
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
           {matrix && <MatrixView matrix={matrix} />}
@@ -87,11 +106,13 @@ export function LiveEngineRun({ runId, initialSummary, initialEvents, initialRep
 function Header({
   summary,
   runId,
-  eventCount
+  eventCount,
+  liveStats
 }: {
   summary: RunSummary;
   runId: string;
   eventCount: number;
+  liveStats: { cases: number; failures: number; heldLine: number };
 }) {
   return (
     <header className="rounded-lg border border-cream-300 bg-white p-5">
@@ -105,13 +126,17 @@ function Header({
         <StatusBadge status={summary.status} />
       </div>
       <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label="Cases" value={summary.testCount} />
+        <Stat label="Cases" value={pickCount(summary.testCount, liveStats.cases)} />
         <Stat
           label="Agent failures"
-          value={summary.failCount}
-          tone={summary.failCount > 0 ? 'fail' : 'neutral'}
+          value={pickCount(summary.failCount, liveStats.failures)}
+          tone={pickCount(summary.failCount, liveStats.failures) > 0 ? 'fail' : 'neutral'}
         />
-        <Stat label="Held the line" value={summary.passCount} tone="pass" />
+        <Stat
+          label="Held the line"
+          value={pickCount(summary.passCount, liveStats.heldLine)}
+          tone="pass"
+        />
         <Stat label="Events" value={eventCount} />
       </div>
       {summary.errorMessage && (
@@ -339,4 +364,15 @@ function extractCases(events: RunEvent[], report: any | null): CaseRecord[] {
     }
   }
   return Array.from(byId.values());
+}
+
+/**
+ * Persisted summary counts only update on run.completed. While the run is
+ * in flight, prefer the live event-derived count (which is non-zero as soon
+ * as the first case completes). On a finished run both should agree, so the
+ * server value wins to avoid showing a stale tab's earlier snapshot.
+ */
+function pickCount(persisted: number, live: number): number {
+  if (persisted > 0) return persisted;
+  return live;
 }
