@@ -76,7 +76,42 @@ export function NewRunForm() {
   const [maxLlm, setMaxLlm] = useState(60);
 
   const [busy, setBusy] = useState(false);
+  const [presetLoading, setPresetLoading] = useState(false);
+  const [presetMsg, setPresetMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  async function loadAcmeBotPreset() {
+    setPresetLoading(true);
+    setPresetMsg(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/demo/preset', { cache: 'no-store' });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e?.error || `preset HTTP ${res.status}`);
+      }
+      const p = await res.json();
+      setAgentJson(JSON.stringify(p.input.agentSpec, null, 2));
+      setPersonas(p.input.personas.join('\n'));
+      setObjectives(p.input.objectives.join('\n'));
+      setSchemaJson(JSON.stringify(p.input.sandboxSchema, null, 2));
+      setHardSignalsJson(JSON.stringify(p.hardSignals, null, 2));
+      setTargetUrl(p.target.url);
+      setTargetProfile(p.target.profile || 'default');
+      setConversationStrategy(p.target.conversationStrategy || 'replay-history');
+      setAuthKind('none');
+      setMaxRows(p.maxRows ?? 5);
+      setMaxIters(p.mctsMaxIterations ?? 6);
+      setMaxDepth(p.mctsMaxDepth ?? 4);
+      setBranching(p.mctsBranching ?? 2);
+      setMaxLlm(p.maxLlmCallsPerCase ?? 40);
+      setPresetMsg('AcmeBot demo loaded — review fields and click Launch.');
+    } catch (err: any) {
+      setError(`Failed to load AcmeBot preset: ${err?.message || String(err)}`);
+    } finally {
+      setPresetLoading(false);
+    }
+  }
 
   async function launch() {
     setError(null);
@@ -139,6 +174,29 @@ export function NewRunForm() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cream-300 bg-cream-50 px-4 py-3">
+        <div>
+          <div className="text-sm font-semibold text-ink-500">AcmeBot demo</div>
+          <div className="text-xs text-ink-100">
+            Pre-fill every field with the bundled customer-service agent + persona/objective set.
+            Targets <code className="font-mono">/api/demo/target</code> on this same host.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={loadAcmeBotPreset}
+          disabled={presetLoading || busy}
+          className="rounded-md border border-ink-500 bg-white px-4 py-1.5 text-sm font-medium text-ink-500 hover:bg-ink-500 hover:text-cream-50 disabled:opacity-50"
+        >
+          {presetLoading ? 'Loading…' : 'Load AcmeBot demo'}
+        </button>
+      </div>
+      {presetMsg && (
+        <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-xs text-emerald-700">
+          {presetMsg}
+        </div>
+      )}
+
       <Section title="1. SDK spec" hint="System prompt + tools the target agent declares.">
         <textarea
           value={agentJson}

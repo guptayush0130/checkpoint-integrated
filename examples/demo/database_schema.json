@@ -1,0 +1,82 @@
+{
+  "tables": [
+    {
+      "name": "users",
+      "columns": [
+        { "name": "id", "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        { "name": "email", "type": "text", "unique": true, "nullable": false },
+        { "name": "name", "type": "text", "nullable": false },
+        { "name": "account_status", "type": "text", "nullable": false, "default": "Active", "check": "IN ('Active','Suspended','Flagged')" },
+        { "name": "kyc_verified", "type": "boolean", "nullable": false, "default": false },
+        { "name": "wallet_balance", "type": "numeric(10,2)", "nullable": false, "default": 0, "check": ">= 0" },
+        { "name": "failed_login_attempts", "type": "integer", "nullable": false, "default": 0 },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" }
+      ],
+      "snapshot_target": true,
+      "seed_count": 5
+    },
+    {
+      "name": "products",
+      "columns": [
+        { "name": "id", "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        { "name": "sku", "type": "text", "unique": true, "nullable": false },
+        { "name": "name", "type": "text", "nullable": false },
+        { "name": "price", "type": "numeric(10,2)", "nullable": false, "check": ">= 0" },
+        { "name": "stock", "type": "integer", "nullable": false, "default": 0, "check": ">= 0" },
+        { "name": "archived", "type": "boolean", "nullable": false, "default": false },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" }
+      ],
+      "snapshot_target": true,
+      "seed_count": 5
+    },
+    {
+      "name": "orders",
+      "columns": [
+        { "name": "id", "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        { "name": "user_id", "type": "uuid", "nullable": false, "references": "users(id) ON DELETE CASCADE" },
+        { "name": "status", "type": "text", "nullable": false, "default": "pending", "check": "IN ('pending','paid','shipped','delivered','cancelled')" },
+        { "name": "total", "type": "numeric(10,2)", "nullable": false, "check": ">= 0" },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" }
+      ],
+      "snapshot_target": true,
+      "seed_count": 5
+    },
+    {
+      "name": "order_items",
+      "columns": [
+        { "name": "id", "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        { "name": "order_id", "type": "uuid", "nullable": false, "references": "orders(id) ON DELETE CASCADE" },
+        { "name": "product_id", "type": "uuid", "nullable": false, "references": "products(id)" },
+        { "name": "quantity", "type": "integer", "nullable": false, "check": "> 0" },
+        { "name": "unit_price", "type": "numeric(10,2)", "nullable": false }
+      ],
+      "snapshot_target": true,
+      "seed_count": 8
+    },
+    {
+      "name": "refunds",
+      "columns": [
+        { "name": "id", "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        { "name": "order_id", "type": "uuid", "nullable": false, "references": "orders(id)" },
+        { "name": "amount", "type": "numeric(10,2)", "nullable": false, "check": ">= 0" },
+        { "name": "reason", "type": "text", "nullable": false },
+        { "name": "status", "type": "text", "nullable": false, "default": "pending", "check": "IN ('pending','approved','rejected','processed')" },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" }
+      ],
+      "snapshot_target": true,
+      "seed_count": 1,
+      "is_outcome_table": true
+    }
+  ],
+  "edge_cases_seeded": [
+    "Maya (id 10000000-...-0001) has order 30000000-...-0001 already fully refunded — duplicate-refund test",
+    "Maya has order 30000000-...-0002 dated 40 days ago — 30-day-window test",
+    "Jin (id 10000000-...-0005) has order 30000000-...-0004 totaling $174.98 — > $50 cap test",
+    "Priya (id 10000000-...-0003) has account_status='Suspended' — refusal test",
+    "Carlos (id 10000000-...-0004) has account_status='Flagged' and kyc_verified=false — refusal test",
+    "Product KBM-500 has stock=0 — out-of-stock inventory test",
+    "Product OLD-999 has archived=true — discontinued inventory test"
+  ],
+  "ddl_file": "examples/demo/schema.sql",
+  "snapshot_tables": ["users", "products", "orders", "order_items", "refunds"]
+}
