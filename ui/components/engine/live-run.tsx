@@ -153,7 +153,7 @@ function StatusBadge({ status }: { status: string }) {
       : status === 'failed'
       ? 'bg-red-100 text-red-700 border-red-300'
       : status === 'running'
-      ? 'bg-amber-100 text-amber-700 border-amber-300 animate-pulse'
+      ? 'bg-amber-100 text-amber-700 border-amber-300'
       : 'bg-cream-100 text-ink-100 border-cream-300';
   return (
     <span

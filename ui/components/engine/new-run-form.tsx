@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const DEMO = {
   agentSpec: {
@@ -113,10 +113,23 @@ export function NewRunForm() {
     }
   }
 
+  // Auto-fill the target URL on mount so Launch is clickable from the get-go.
+  // The engine fetch is server-side, so we need an absolute URL with the
+  // current origin; relative paths won't resolve once the orchestrator runs.
+  useEffect(() => {
+    if (!targetUrl && typeof window !== 'undefined') {
+      setTargetUrl(`${window.location.origin}/api/demo/target`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function launch() {
     setError(null);
     setBusy(true);
     try {
+      if (!targetUrl.trim()) {
+        throw new Error('Target URL is required.');
+      }
       const agentSpec = JSON.parse(agentJson);
       const sandboxSchema = JSON.parse(schemaJson);
       const hardSignals = hardSignalsJson.trim() ? JSON.parse(hardSignalsJson) : undefined;
@@ -331,7 +344,7 @@ export function NewRunForm() {
         <button
           type="button"
           onClick={launch}
-          disabled={busy || !targetUrl}
+          disabled={busy}
           className="rounded-md bg-ink-500 px-6 py-2.5 text-cream-50 font-medium hover:bg-ink-300 disabled:opacity-50"
         >
           {busy ? 'Launching…' : 'Launch run →'}
