@@ -59,16 +59,13 @@ export function Header() {
 
 function CheckpointMark() {
   return (
-    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden>
-      <rect x="1" y="1" width="20" height="20" rx="4" fill="#0F0E0C" />
-      <path
-        d="M6.5 11.6L9.5 14.5L15.5 7.5"
-        stroke="#F7F5EE"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/checkpoint-mark.svg"
+      width={22}
+      height={22}
+      alt="Checkpoint"
+      className="block"
+    />
   );
 }

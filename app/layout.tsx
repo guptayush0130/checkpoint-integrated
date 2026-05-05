@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description:
     'Generate, simulate, and score AI agents in an in-process Supabase sandbox. Find every failure before a customer does.',
   icons: {
-    icon: '/favicon.svg'
+    icon: '/checkpoint-mark.svg'
   }
 };
 
