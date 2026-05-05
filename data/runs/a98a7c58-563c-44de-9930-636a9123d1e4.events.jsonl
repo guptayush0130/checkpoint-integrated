@@ -1,0 +1,3 @@
+{"id":1,"ts":"2026-05-05T00:33:28.734Z","type":"run.created","payload":{"agentName":"AcmeBot","schemaName":"account_status-kyc_verified-wallet_balance"}}
+{"id":2,"ts":"2026-05-05T00:33:29.203Z","type":"sandbox.ready","payload":{"url":"http://127.0.0.1:58283","anonKey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1tb2NrIiwicm9sZSI6ImFub24ifQ.WwI6L5YGGBNQuKYt1vErh4Zd8jAjfv4MfJ_U-a0mQRU","tables":["order_items","orders","products","refunds","users"]}}
+{"id":3,"ts":"2026-05-05T00:33:29.204Z","type":"run.failed","payload":{"message":"object is not iterable (cannot read property Symbol(Symbol.iterator))"}}

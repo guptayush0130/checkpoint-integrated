@@ -1,0 +1,45 @@
+{
+  "id": "690ecaf2-f885-4a22-b736-7e2d86ba9b45",
+  "status": "completed",
+  "config": {
+    "input": {
+      "agentSpec": {
+        "systemPrompt": "",
+        "tools": []
+      },
+      "personas": [
+        "x"
+      ],
+      "objectives": [
+        "y"
+      ],
+      "sandboxSchema": {
+        "fields": [
+          {
+            "name": "x",
+            "type": "string"
+          }
+        ],
+        "seedSql": "CREATE TABLE IF NOT EXISTS refunds (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), amount numeric);"
+      }
+    },
+    "target": {
+      "url": "http://127.0.0.1:49528",
+      "profile": "default",
+      "conversationStrategy": "session-id"
+    },
+    "maxRows": 1,
+    "mctsMaxIterations": 1,
+    "mctsMaxDepth": 1,
+    "mctsBranching": 1,
+    "maxLlmCallsPerCase": 4
+  },
+  "agentName": "TargetAgent",
+  "schemaName": "x",
+  "startedAt": "2026-05-04T15:43:47.708Z",
+  "testCount": 1,
+  "passCount": 1,
+  "failCount": 0,
+  "averageScore": 100,
+  "completedAt": "2026-05-04T15:43:48.059Z"
+}

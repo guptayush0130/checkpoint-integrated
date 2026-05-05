@@ -6,7 +6,9 @@ dist/
 .env*.local
 .tools/
 reports/
-data/
+# data/ — runs/agents/schemas are committed so YC reviewers and teammates
+#         can replay any audit. Add specific paths back here if a run leaks
+#         something we don't want public.
 *.log
 *.tsbuildinfo
 next-env.d.ts
